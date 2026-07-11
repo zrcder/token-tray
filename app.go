@@ -290,8 +290,7 @@ func renderMultiReport(reports []*UsageReport) {
 			if s := w.ResetInSeconds(); s != nil && *s > 0 {
 				reset = fmt.Sprintf("  %s", formatDuration(*s))
 			}
-			label := padRight(w.Label, 6)
-			setSlot(slotIdx, fmt.Sprintf("   %s %s  %s%s", label, bar, pctStr, reset), true)
+			setSlot(slotIdx, fmt.Sprintf("   %s  %s  %s%s", w.Label, bar, pctStr, reset), true)
 			slotIdx++
 		}
 	}
