@@ -31,3 +31,5 @@ build/
 *.json
 !go.mod
 !go.sum
+test_cgo
+*.bak*
