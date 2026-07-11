@@ -7,7 +7,10 @@ import (
 )
 
 type Config struct {
-	ZhipuAPIKey string `json:"zhipu_api_key"`
+	ZhipuAPIKey     string `json:"zhipu_api_key"`
+	DeepSeekAPIKey  string `json:"deepseek_api_key"`
+	RelayBaseURL    string `json:"relay_base_url"`
+	RelayToken      string `json:"relay_token"`
 }
 
 func configPath() string {
@@ -37,11 +40,9 @@ func SaveConfig(c Config) error {
 	if err != nil {
 		return err
 	}
-	// Write with 0600 (owner-only, sensitive credential).
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		return err
 	}
-	// WriteFile honours umask, force 0600 explicitly.
 	_ = os.Chmod(path, 0600)
 	return nil
 }

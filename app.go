@@ -12,18 +12,21 @@ import (
 const refreshInterval = 60 * time.Second
 
 var (
-	cfg      Config
-	provider *ZhipuProvider
+	cfg       Config
+	providers []Provider
 
 	mHeader   *systray.MenuItem
-	winLabels [3]*systray.MenuItem
-	winValues [3]*systray.MenuItem
-	winResets [3]*systray.MenuItem
+	winLabels [6]*systray.MenuItem
+	winValues [6]*systray.MenuItem
+	winResets [6]*systray.MenuItem
 	mError    *systray.MenuItem
 	mUpdated  *systray.MenuItem
 	mRefresh  *systray.MenuItem
-	mSettings *systray.MenuItem
-	mQuit     *systray.MenuItem
+
+	mSetZhipu    *systray.MenuItem
+	mSetDeepSeek *systray.MenuItem
+	mSetRelay    *systray.MenuItem
+	mQuit        *systray.MenuItem
 )
 
 func onReady() {
@@ -35,7 +38,7 @@ func onReady() {
 	mHeader.Disable()
 	systray.AddSeparator()
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 6; i++ {
 		winLabels[i] = systray.AddMenuItem("", "")
 		winValues[i] = systray.AddMenuItem("", "")
 		winResets[i] = systray.AddMenuItem("", "")
@@ -45,8 +48,8 @@ func onReady() {
 		winLabels[i].Hide()
 		winValues[i].Hide()
 		winResets[i].Hide()
-		systray.AddSeparator()
 	}
+	systray.AddSeparator()
 
 	mError = systray.AddMenuItem("", "")
 	mError.Disable()
@@ -57,16 +60,49 @@ func onReady() {
 	systray.AddSeparator()
 
 	mRefresh = systray.AddMenuItem("↻ 立即刷新", "")
-	mSettings = systray.AddMenuItem("⚙ 设置…", "")
+	systray.AddSeparator()
+	mSetZhipu = systray.AddMenuItem("⚙ 智谱 API Key…", "")
+	mSetDeepSeek = systray.AddMenuItem("⚙ DeepSeek API Key…", "")
+	mSetRelay = systray.AddMenuItem("⚙ 中转站设置…", "")
+	systray.AddSeparator()
 	mQuit = systray.AddMenuItem("退出", "")
 
 	cfg = LoadConfig()
-	if cfg.ZhipuAPIKey != "" {
-		provider = NewZhipuProvider(cfg.ZhipuAPIKey)
-	}
+	rebuildProviders()
 
 	go refreshLoop()
 	go clickLoop()
+}
+
+func rebuildProviders() {
+	providers = providers[:0]
+	if cfg.ZhipuAPIKey != "" {
+		providers = append(providers, NewZhipuProvider(cfg.ZhipuAPIKey))
+	}
+	if cfg.DeepSeekAPIKey != "" {
+		providers = append(providers, NewDeepSeekProvider(cfg.DeepSeekAPIKey))
+	}
+	if cfg.RelayBaseURL != "" && cfg.RelayToken != "" {
+		providers = append(providers, NewRelayProvider(cfg.RelayBaseURL, cfg.RelayToken))
+	}
+	updateSettingsLabels()
+}
+
+func updateSettingsLabels() {
+	mSetZhipu.SetTitle(fmt.Sprintf("⚙ 智谱 API Key… %s", configMark(cfg.ZhipuAPIKey)))
+	mSetDeepSeek.SetTitle(fmt.Sprintf("⚙ DeepSeek API Key… %s", configMark(cfg.DeepSeekAPIKey)))
+	if cfg.RelayBaseURL != "" {
+		mSetRelay.SetTitle(fmt.Sprintf("⚙ 中转站 (%s)… %s", cfg.RelayBaseURL, configMark(cfg.RelayToken)))
+	} else {
+		mSetRelay.SetTitle("⚙ 中转站设置… ○")
+	}
+}
+
+func configMark(key string) string {
+	if key != "" {
+		return "●"
+	}
+	return "○"
 }
 
 func onExit() {}
@@ -84,8 +120,12 @@ func clickLoop() {
 		select {
 		case <-mRefresh.ClickedCh:
 			go refreshOnce()
-		case <-mSettings.ClickedCh:
-			handleSettings()
+		case <-mSetZhipu.ClickedCh:
+			handleZhipuSettings()
+		case <-mSetDeepSeek.ClickedCh:
+			handleDeepSeekSettings()
+		case <-mSetRelay.ClickedCh:
+			handleRelaySettings()
 		case <-mQuit.ClickedCh:
 			systray.Quit()
 			return
@@ -93,66 +133,108 @@ func clickLoop() {
 	}
 }
 
+var allReports []*UsageReport
+
 func refreshOnce() {
-	if provider == nil {
+	if len(providers) == 0 {
 		systray.SetIcon(iconLoading)
 		systray.SetTitle("")
-		systray.SetTooltip("TokenTray — 未配置 API Key")
-		mHeader.SetTitle("⚫ 未配置 — 点击「⚙ 设置…」")
-		mError.SetTitle("   ❌ 请点击「⚙ 设置…」填入 API Key")
+		systray.SetTooltip("TokenTray — 未配置任何 Provider")
+		mHeader.SetTitle("⚫ 未配置 — 点击下方「⚙ 设置」添加 API Key")
+		mError.SetTitle("   ❌ 请先配置至少一个 Provider")
 		mError.Show()
 		return
 	}
 
-	report, err := provider.FetchStatus()
-	if err != nil {
-		systray.SetIcon(iconLoading)
-		systray.SetTitle("")
-		systray.SetTooltip("TokenTray — " + err.Error())
-		mHeader.SetTitle("⚫ 智谱 GLM")
-		mError.SetTitle("   ❌ " + err.Error())
-		mError.Show()
-		mUpdated.SetTitle("   更新于 " + time.Now().Format("15:04:05"))
-		mUpdated.Show()
-		return
+	reports := make([]*UsageReport, 0, len(providers))
+	for _, p := range providers {
+		r, err := p.FetchStatus()
+		if err != nil {
+			r = &UsageReport{
+				ProviderName: p.Name(),
+				ShortLabel:   p.ShortLabel(),
+				Error:        err.Error(),
+				LastUpdated:  time.Now(),
+			}
+		}
+		reports = append(reports, r)
 	}
-	renderReport(report)
+	allReports = reports
+	renderMultiReport(reports)
 }
 
-func renderReport(r *UsageReport) {
-	segments := make([]DotColor, 0, len(r.Windows))
-	for _, w := range r.Windows {
-		segments = append(segments, colorForFraction(w.Fraction()))
+func renderMultiReport(reports []*UsageReport) {
+	allSegments := []DotColor{}
+	for _, r := range reports {
+		for _, w := range r.Windows {
+			allSegments = append(allSegments, colorForFraction(w.Fraction()))
+		}
 	}
-	if len(segments) == 0 {
-		segments = []DotColor{colGray}
+	if len(allSegments) == 0 {
+		allSegments = []DotColor{colGray}
 	}
-	systray.SetIcon(generateSegmentedIcon(segments))
+
+	// For >6 segments, widen the canvas would be needed. For now cap at 6
+	// by merging excess into the last visible segment.
+	if len(allSegments) > 6 {
+		allSegments = allSegments[:6]
+	}
+
+	systray.SetIcon(generateSegmentedIcon(allSegments))
 	systray.SetTitle("")
 
-	var parts []string
-	for _, w := range r.Windows {
-		pct := "—"
-		if w.Percentage != nil {
-			pct = fmt.Sprintf("%.0f%%", *w.Percentage)
+	var tips []string
+	for _, r := range reports {
+		if r.Error != "" {
+			tips = append(tips, fmt.Sprintf("%s: ❌", r.ProviderName))
+			continue
 		}
-		parts = append(parts, fmt.Sprintf("%s %s", w.Label, pct))
+		var parts []string
+		for _, w := range r.Windows {
+			pct := "—"
+			if w.Percentage != nil {
+				pct = fmt.Sprintf("%.0f%%", *w.Percentage)
+			}
+			parts = append(parts, pct)
+		}
+		tips = append(tips, fmt.Sprintf("%s %s", r.ProviderName, strings.Join(parts, "/")))
 	}
-	systray.SetTooltip(strings.Join(parts, " | "))
+	systray.SetTooltip(strings.Join(tips, " | "))
 
-	level := ""
-	if r.PlanLevel != "" {
-		level = " · " + strings.ToUpper(r.PlanLevel)
-	}
-	mHeader.SetTitle(fmt.Sprintf("%s %s%s", statusDot(r.Status()), r.ProviderName, level))
+	slotIdx := 0
+	var firstHeader bool
+	for ri, r := range reports {
+		if ri > 0 && slotIdx < 6 {
+			winLabels[slotIdx].SetTitle("   ───────────")
+			winLabels[slotIdx].Show()
+			slotIdx++
+		}
 
-	// Windows
-	for i := 0; i < 3; i++ {
-		if i < len(r.Windows) {
-			w := r.Windows[i]
-			winLabels[i].SetTitle("   " + w.Label)
-			winLabels[i].Show()
+		statusIcon := statusDot(r.Status())
+		if r.Error != "" {
+			if slotIdx < 6 {
+				winLabels[slotIdx].SetTitle(fmt.Sprintf("   %s %s — ❌", statusIcon, r.ProviderName))
+				winLabels[slotIdx].Show()
+				slotIdx++
+			}
+			continue
+		}
 
+		level := ""
+		if r.PlanLevel != "" {
+			level = " · " + strings.ToUpper(r.PlanLevel)
+		}
+		if !firstHeader && slotIdx < 6 {
+			winLabels[slotIdx].SetTitle(fmt.Sprintf("   %s %s%s", statusIcon, r.ProviderName, level))
+			winLabels[slotIdx].Show()
+			firstHeader = true
+			slotIdx++
+		}
+
+		for _, w := range r.Windows {
+			if slotIdx >= 6 {
+				break
+			}
 			pctStr := "—"
 			if w.Percentage != nil {
 				pctStr = fmt.Sprintf("%.0f%%", *w.Percentage)
@@ -162,62 +244,102 @@ func renderReport(r *UsageReport) {
 			if w.Used != nil && w.Limit != nil {
 				counts = fmt.Sprintf("  (%s / %s)", formatCount(*w.Used), formatCount(*w.Limit))
 			}
-			winValues[i].SetTitle(fmt.Sprintf("   %s  %s%s", bar, pctStr, counts))
-			winValues[i].Show()
-
-			if reset := w.ResetInSeconds(); reset != nil {
-				winResets[i].SetTitle(fmt.Sprintf("   ⏳ %s 后重置", formatDuration(*reset)))
-				winResets[i].Show()
-			} else {
-				winResets[i].Hide()
-			}
-		} else {
-			winLabels[i].Hide()
-			winValues[i].Hide()
-			winResets[i].Hide()
+			winLabels[slotIdx].SetTitle(fmt.Sprintf("      %s %s  %s%s", w.Label, bar, pctStr, counts))
+			winLabels[slotIdx].Show()
+			slotIdx++
 		}
 	}
 
+	for i := slotIdx; i < 6; i++ {
+		winLabels[i].Hide()
+	}
+	for i := range winValues {
+		winValues[i].Hide()
+	}
+	for i := range winResets {
+		winResets[i].Hide()
+	}
+
 	mError.Hide()
-	mUpdated.SetTitle("   更新于 " + r.LastUpdated.Format("15:04:05"))
+	mUpdated.SetTitle("   更新于 " + time.Now().Format("15:04:05"))
 	mUpdated.Show()
 }
 
-func handleSettings() {
-	currentHint := maskKey(cfg.ZhipuAPIKey)
+func handleZhipuSettings() {
+	newKey := promptDialog(
+		"智谱 API Key",
+		fmt.Sprintf("当前: %s\n请输入智谱 API Key:", maskKey(cfg.ZhipuAPIKey)),
+	)
+	if newKey == "__CANCELLED__" {
+		return
+	}
+	cfg.ZhipuAPIKey = newKey
+	_ = SaveConfig(cfg)
+	rebuildProviders()
+	go refreshOnce()
+}
+
+func handleDeepSeekSettings() {
+	newKey := promptDialog(
+		"DeepSeek API Key",
+		fmt.Sprintf("当前: %s\n请输入 DeepSeek API Key (sk-开头):", maskKey(cfg.DeepSeekAPIKey)),
+	)
+	if newKey == "__CANCELLED__" {
+		return
+	}
+	cfg.DeepSeekAPIKey = newKey
+	_ = SaveConfig(cfg)
+	rebuildProviders()
+	go refreshOnce()
+}
+
+func handleRelaySettings() {
+	baseURL := promptDialog(
+		"中转站 — 地址",
+		fmt.Sprintf("当前: %s\n请输入中转站地址 (如 https://api.example.com):", defaultStr(cfg.RelayBaseURL, "未配置")),
+	)
+	if baseURL == "__CANCELLED__" {
+		return
+	}
+	token := promptDialog(
+		"中转站 — Token",
+		"请输入 Dashboard Access Token\n(不是 sk- 开头的 API Key，是个人设置页面的系统令牌):",
+	)
+	if token == "__CANCELLED__" {
+		return
+	}
+	cfg.RelayBaseURL = baseURL
+	cfg.RelayToken = token
+	_ = SaveConfig(cfg)
+	rebuildProviders()
+	go refreshOnce()
+}
+
+func promptDialog(title, message string) string {
 	script := fmt.Sprintf(`
-set dialogResult to display dialog "当前: %s\n请输入智谱 API Key:" default answer "" with title "TokenTray 设置" buttons {"取消", "保存"} default button "保存"
+set dialogResult to display dialog "%s" default answer "" with title "TokenTray — %s" buttons {"取消", "保存"} default button "保存"
 if button returned of dialogResult = "保存" then
 	return text returned of dialogResult
 end if
 return "__CANCELLED__"
-`, currentHint)
+`, escapeDialog(message), escapeDialog(title))
 
 	out, err := exec.Command("osascript", "-e", script).Output()
 	if err != nil {
-		return
+		return "__CANCELLED__"
 	}
-	newKey := strings.TrimSpace(strings.TrimRight(string(out), "\n"))
-	if newKey == "__CANCELLED__" {
-		return
-	}
+	return strings.TrimSpace(strings.TrimRight(string(out), "\n"))
+}
 
-	if newKey == "" {
-		confirmScript := `display dialog "确定要清空已配置的 API Key 吗？" with title "确认" buttons {"取消", "清空"} default button "取消"`
-		confirmOut, err := exec.Command("osascript", "-e", confirmScript).Output()
-		if err != nil || strings.TrimSpace(string(confirmOut)) != "清空" {
-			return
-		}
-	}
+func escapeDialog(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
+}
 
-	cfg.ZhipuAPIKey = newKey
-	if err := SaveConfig(cfg); err != nil {
-		return
+func defaultStr(s, def string) string {
+	if s == "" {
+		return def
 	}
-	if newKey == "" {
-		provider = nil
-	} else {
-		provider = NewZhipuProvider(newKey)
-	}
-	go refreshOnce()
+	return s
 }
