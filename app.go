@@ -5,24 +5,24 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"fyne.io/systray"
 )
 
 var (
+	mu              sync.Mutex
 	cfg             Config
 	providers       []Provider
 	refreshInterval = 5 * time.Minute
 	refreshCh       = make(chan struct{}, 1)
 
-	mHeader    *systray.MenuItem
-	winLabels  [12]*systray.MenuItem
-	winValues  [12]*systray.MenuItem
-	winResets  [12]*systray.MenuItem
-	mError     *systray.MenuItem
-	mUpdated   *systray.MenuItem
-	mRefresh   *systray.MenuItem
+	mHeader   *systray.MenuItem
+	winLabels [12]*systray.MenuItem
+	mError    *systray.MenuItem
+	mUpdated  *systray.MenuItem
+	mRefresh  *systray.MenuItem
 
 	mSetZhipu    *systray.MenuItem
 	mSetDeepSeek *systray.MenuItem
@@ -44,14 +44,8 @@ func onReady() {
 
 	for i := 0; i < 12; i++ {
 		winLabels[i] = systray.AddMenuItem("", "")
-		winValues[i] = systray.AddMenuItem("", "")
-		winResets[i] = systray.AddMenuItem("", "")
 		winLabels[i].Disable()
-		winValues[i].Disable()
-		winResets[i].Disable()
 		winLabels[i].Hide()
-		winValues[i].Hide()
-		winResets[i].Hide()
 	}
 	systray.AddSeparator()
 
@@ -71,14 +65,16 @@ func onReady() {
 	systray.AddSeparator()
 	mQuit = systray.AddMenuItem("退出", "")
 
+	mu.Lock()
 	cfg = LoadConfig()
-	rebuildProviders()
+	rebuildProvidersLocked()
+	mu.Unlock()
 
 	go refreshLoop()
 	go clickLoop()
 }
 
-func rebuildProviders() {
+func rebuildProvidersLocked() {
 	providers = providers[:0]
 	if cfg.ZhipuAPIKey != "" {
 		providers = append(providers, NewZhipuProvider(cfg.ZhipuAPIKey))
@@ -112,41 +108,35 @@ func intervalLabel() string {
 func onExit() {}
 
 func refreshLoop() {
-	refreshOnce()
+	requestRefresh()
 	for {
+		mu.Lock()
+		interval := refreshInterval
+		mu.Unlock()
 		select {
-		case <-time.After(refreshInterval):
-			refreshOnce()
+		case <-time.After(interval):
+			requestRefresh()
 		case <-refreshCh:
-			refreshOnce()
+			requestRefresh()
 		}
 	}
 }
 
-func clickLoop() {
-	for {
-		select {
-		case <-mRefresh.ClickedCh:
-			go refreshOnce()
-		case <-mSetZhipu.ClickedCh:
-			handleZhipuSettings()
-		case <-mSetDeepSeek.ClickedCh:
-			handleDeepSeekSettings()
-		case <-mInterval.ClickedCh:
-			intervalIdx = (intervalIdx + 1) % len(intervalOptions)
-			refreshInterval = intervalOptions[intervalIdx]
-			mInterval.SetTitle(intervalLabel())
-			refreshCh <- struct{}{}
-			systray.Quit()
-			return
-		}
+func requestRefresh() {
+	select {
+	case refreshCh <- struct{}{}:
+	default:
 	}
+	doRefresh()
 }
 
-var allReports []*UsageReport
+func doRefresh() {
+	mu.Lock()
+	snapshot := make([]Provider, len(providers))
+	copy(snapshot, providers)
+	mu.Unlock()
 
-func refreshOnce() {
-	if len(providers) == 0 {
+	if len(snapshot) == 0 {
 		systray.SetIcon(iconLoading)
 		systray.SetTitle("")
 		systray.SetTooltip("TokenTray — 未配置任何 Provider")
@@ -156,8 +146,8 @@ func refreshOnce() {
 		return
 	}
 
-	reports := make([]*UsageReport, 0, len(providers))
-	for _, p := range providers {
+	reports := make([]*UsageReport, 0, len(snapshot))
+	for _, p := range snapshot {
 		r, err := p.FetchStatus()
 		if err != nil {
 			r = &UsageReport{
@@ -169,8 +159,37 @@ func refreshOnce() {
 		}
 		reports = append(reports, r)
 	}
-	allReports = reports
 	renderMultiReport(reports)
+}
+
+func clickLoop() {
+	for {
+		select {
+		case <-mRefresh.ClickedCh:
+			select {
+			case refreshCh <- struct{}{}:
+			default:
+			}
+		case <-mSetZhipu.ClickedCh:
+			go handleZhipuSettings()
+		case <-mSetDeepSeek.ClickedCh:
+			go handleDeepSeekSettings()
+		case <-mInterval.ClickedCh:
+			mu.Lock()
+			intervalIdx = (intervalIdx + 1) % len(intervalOptions)
+			refreshInterval = intervalOptions[intervalIdx]
+			label := intervalLabel()
+			mu.Unlock()
+			mInterval.SetTitle(label)
+			select {
+			case refreshCh <- struct{}{}:
+			default:
+			}
+		case <-mQuit.ClickedCh:
+			systray.Quit()
+			return
+		}
+	}
 }
 
 func renderMultiReport(reports []*UsageReport) {
@@ -304,10 +323,20 @@ func handleZhipuSettings() {
 	if newKey == "__CANCELLED__" {
 		return
 	}
+	mu.Lock()
 	cfg.ZhipuAPIKey = newKey
-	_ = SaveConfig(cfg)
-	rebuildProviders()
-	go refreshOnce()
+	if err := SaveConfig(cfg); err != nil {
+		mu.Unlock()
+		mError.SetTitle(fmt.Sprintf("   ❌ 保存失败: %v", err))
+		mError.Show()
+		return
+	}
+	rebuildProvidersLocked()
+	mu.Unlock()
+	select {
+	case refreshCh <- struct{}{}:
+	default:
+	}
 }
 
 func handleDeepSeekSettings() {
@@ -318,10 +347,20 @@ func handleDeepSeekSettings() {
 	if newKey == "__CANCELLED__" {
 		return
 	}
+	mu.Lock()
 	cfg.DeepSeekAPIKey = newKey
-	_ = SaveConfig(cfg)
-	rebuildProviders()
-	go refreshOnce()
+	if err := SaveConfig(cfg); err != nil {
+		mu.Unlock()
+		mError.SetTitle(fmt.Sprintf("   ❌ 保存失败: %v", err))
+		mError.Show()
+		return
+	}
+	rebuildProvidersLocked()
+	mu.Unlock()
+	select {
+	case refreshCh <- struct{}{}:
+	default:
+	}
 }
 
 func promptDialog(title, message string) string {

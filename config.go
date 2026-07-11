@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 )
@@ -15,7 +16,10 @@ type Config struct {
 }
 
 func configPath() string {
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.Getenv("HOME")
+	}
 	return filepath.Join(home, ".config", "token-tray", "config.json")
 }
 
@@ -27,6 +31,9 @@ func LoadConfig() Config {
 	}
 	var c Config
 	if err := json.Unmarshal(data, &c); err != nil {
+		backupPath := path + ".corrupt"
+		_ = os.Rename(path, backupPath)
+		fmt.Fprintf(os.Stderr, "config corrupted, backed up to %s: %v\n", backupPath, err)
 		return Config{}
 	}
 	return c
@@ -41,9 +48,12 @@ func SaveConfig(c Config) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
 		return err
 	}
-	_ = os.Chmod(path, 0600)
-	return nil
+	if err := os.Chmod(tmp, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
