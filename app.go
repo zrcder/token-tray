@@ -27,7 +27,7 @@ var (
 )
 
 func onReady() {
-	systray.SetIcon(iconGray)
+	systray.SetIcon(iconLoading)
 	systray.SetTitle("")
 	systray.SetTooltip("TokenTray — 加载中…")
 
@@ -95,7 +95,7 @@ func clickLoop() {
 
 func refreshOnce() {
 	if provider == nil {
-		systray.SetIcon(iconGray)
+		systray.SetIcon(iconLoading)
 		systray.SetTitle("")
 		systray.SetTooltip("TokenTray — 未配置 API Key")
 		mHeader.SetTitle("⚫ 未配置 — 点击「⚙ 设置…」")
@@ -106,7 +106,7 @@ func refreshOnce() {
 
 	report, err := provider.FetchStatus()
 	if err != nil {
-		systray.SetIcon(iconGray)
+		systray.SetIcon(iconLoading)
 		systray.SetTitle("")
 		systray.SetTooltip("TokenTray — " + err.Error())
 		mHeader.SetTitle("⚫ 智谱 GLM")
@@ -120,20 +120,25 @@ func refreshOnce() {
 }
 
 func renderReport(r *UsageReport) {
-	systray.SetIcon(iconForStatus(r.Status()))
+	segments := make([]DotColor, 0, len(r.Windows))
+	for _, w := range r.Windows {
+		segments = append(segments, colorForFraction(w.Fraction()))
+	}
+	if len(segments) == 0 {
+		segments = []DotColor{colGray}
+	}
+	systray.SetIcon(generateSegmentedIcon(segments))
 	systray.SetTitle("")
 
-	maxPct := -1.0
+	var parts []string
 	for _, w := range r.Windows {
-		if w.Percentage != nil && *w.Percentage > maxPct {
-			maxPct = *w.Percentage
+		pct := "—"
+		if w.Percentage != nil {
+			pct = fmt.Sprintf("%.0f%%", *w.Percentage)
 		}
+		parts = append(parts, fmt.Sprintf("%s %s", w.Label, pct))
 	}
-	if maxPct >= 0 {
-		systray.SetTooltip(fmt.Sprintf("智谱 GLM — 最高用量 %.0f%%", maxPct))
-	} else {
-		systray.SetTooltip("智谱 GLM")
-	}
+	systray.SetTooltip(strings.Join(parts, " | "))
 
 	level := ""
 	if r.PlanLevel != "" {

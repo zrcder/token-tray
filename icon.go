@@ -5,31 +5,59 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"math"
 )
 
-const (
-	iconSize   = 32
-	iconCenter = float64(iconSize) / 2
-	iconRadius = 12.0
+type DotColor struct {
+	R, G, B, A uint8
+}
+
+var (
+	colGreen  = DotColor{0x34, 0xC7, 0x59, 0xFF}
+	colYellow = DotColor{0xFF, 0xCC, 0x00, 0xFF}
+	colRed    = DotColor{0xFF, 0x3B, 0x30, 0xFF}
+	colGray   = DotColor{0x8E, 0x8E, 0x93, 0xFF}
 )
 
-func generateCircleIcon(col color.RGBA) []byte {
-	img := image.NewRGBA(image.Rect(0, 0, iconSize, iconSize))
+func colorForFraction(f *float64) DotColor {
+	if f == nil {
+		return colGray
+	}
+	v := *f
+	switch {
+	case v >= 0.9:
+		return colRed
+	case v >= 0.7:
+		return colYellow
+	default:
+		return colGreen
+	}
+}
 
-	for y := 0; y < iconSize; y++ {
-		for x := 0; x < iconSize; x++ {
-			dx := float64(x) - iconCenter + 0.5
-			dy := float64(y) - iconCenter + 0.5
-			dist := math.Sqrt(dx*dx + dy*dy)
+// generateSegmentedIcon draws a horizontal bar split into N independently-colored segments.
+// Leftmost = 5h, middle = weekly, rightmost = MCP. Each segment is a solid rectangle.
+func generateSegmentedIcon(segments []DotColor) []byte {
+	const (
+		canvasW = 48
+		canvasH = 14
+		gap     = 2
+		padY    = 1
+	)
 
-			if dist <= iconRadius {
-				alpha := 1.0
-				if dist > iconRadius-1.0 {
-					alpha = iconRadius - dist
-				}
-				a := uint8(float64(col.A) * alpha)
-				img.SetRGBA(x, y, color.RGBA{col.R, col.G, col.B, a})
+	n := len(segments)
+	if n == 0 {
+		n = 1
+		segments = []DotColor{colGray}
+	}
+
+	segW := (canvasW - gap*(n-1)) / n
+	img := image.NewRGBA(image.Rect(0, 0, canvasW, canvasH))
+
+	for i, col := range segments {
+		x0 := i * (segW + gap)
+		x1 := x0 + segW
+		for y := padY; y < canvasH-padY; y++ {
+			for x := x0; x < x1; x++ {
+				img.SetRGBA(x, y, color.RGBA{col.R, col.G, col.B, col.A})
 			}
 		}
 	}
@@ -39,24 +67,4 @@ func generateCircleIcon(col color.RGBA) []byte {
 	return buf.Bytes()
 }
 
-var (
-	iconGreen  = generateCircleIcon(color.RGBA{R: 0x34, G: 0xC7, B: 0x59, A: 0xFF})
-	iconYellow = generateCircleIcon(color.RGBA{R: 0xFF, G: 0xCC, B: 0x00, A: 0xFF})
-	iconRed    = generateCircleIcon(color.RGBA{R: 0xFF, G: 0x3B, B: 0x30, A: 0xFF})
-	iconGray   = generateCircleIcon(color.RGBA{R: 0x8E, G: 0x8E, B: 0x93, A: 0xFF})
-)
-
-func iconForStatus(s ProviderStatus) []byte {
-	switch s {
-	case StatusOK:
-		return iconGreen
-	case StatusWarning:
-		return iconYellow
-	case StatusCritical:
-		return iconRed
-	case StatusError:
-		return iconGray
-	default:
-		return iconGray
-	}
-}
+var iconLoading = generateSegmentedIcon([]DotColor{colGray})
