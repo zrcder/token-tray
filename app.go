@@ -26,7 +26,6 @@ var (
 
 	mSetZhipu    *systray.MenuItem
 	mSetDeepSeek *systray.MenuItem
-	mSetRelay    *systray.MenuItem
 	mQuit        *systray.MenuItem
 )
 
@@ -64,7 +63,6 @@ func onReady() {
 	systray.AddSeparator()
 	mSetZhipu = systray.AddMenuItem("⚙ 智谱 API Key…", "")
 	mSetDeepSeek = systray.AddMenuItem("⚙ DeepSeek API Key…", "")
-	mSetRelay = systray.AddMenuItem("⚙ 中转站设置…", "")
 	systray.AddSeparator()
 	mQuit = systray.AddMenuItem("退出", "")
 
@@ -83,20 +81,12 @@ func rebuildProviders() {
 	if cfg.DeepSeekAPIKey != "" {
 		providers = append(providers, NewDeepSeekProvider(cfg.DeepSeekAPIKey))
 	}
-	if cfg.RelayBaseURL != "" && cfg.RelayToken != "" {
-		providers = append(providers, NewRelayProvider(cfg.RelayBaseURL, cfg.RelayToken, cfg.RelayUserID))
-	}
 	updateSettingsLabels()
 }
 
 func updateSettingsLabels() {
 	mSetZhipu.SetTitle(fmt.Sprintf("⚙ 智谱 API Key… %s", configMark(cfg.ZhipuAPIKey)))
 	mSetDeepSeek.SetTitle(fmt.Sprintf("⚙ DeepSeek API Key… %s", configMark(cfg.DeepSeekAPIKey)))
-	if cfg.RelayBaseURL != "" {
-		mSetRelay.SetTitle(fmt.Sprintf("⚙ 中转站 (%s)… %s", cfg.RelayBaseURL, configMark(cfg.RelayToken)))
-	} else {
-		mSetRelay.SetTitle("⚙ 中转站设置… ○")
-	}
 }
 
 func configMark(key string) string {
@@ -125,8 +115,6 @@ func clickLoop() {
 			handleZhipuSettings()
 		case <-mSetDeepSeek.ClickedCh:
 			handleDeepSeekSettings()
-		case <-mSetRelay.ClickedCh:
-			handleRelaySettings()
 		case <-mQuit.ClickedCh:
 			systray.Quit()
 			return
@@ -321,70 +309,6 @@ func handleDeepSeekSettings() {
 	go refreshOnce()
 }
 
-func handleRelaySettings() {
-	current := "未配置"
-	if cfg.RelayBaseURL != "" {
-		current = fmt.Sprintf("%s\n令牌: %s", cfg.RelayBaseURL, maskKey(cfg.RelayToken))
-		if cfg.RelayUserID != "" {
-			current += fmt.Sprintf("\n用户ID: %s", cfg.RelayUserID)
-		}
-	}
-
-	msg := fmt.Sprintf(`当前配置:
-%s
-
-请输入中转站信息，格式（每行一项）:
-地址: https://your-relay.com
-令牌: 你的系统访问令牌
-用户ID: (可选，部分站点需要)
-
-获取令牌: 登录中转站 → 个人设置 → 系统访问令牌
-注意: 不是 sk- 开头的 API Key，是 Dashboard 令牌`, current)
-
-	input := promptDialog("中转站设置", msg)
-	if input == "__CANCELLED__" {
-		return
-	}
-
-	lines := strings.Split(strings.TrimSpace(input), "\n")
-	var baseURL, token, userID string
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if idx := strings.Index(line, ":"); idx > 0 {
-			key := strings.TrimSpace(line[:idx])
-			val := strings.TrimSpace(line[idx+1:])
-			switch {
-			case strings.HasPrefix(key, "地址") || strings.HasPrefix(key, "url") || strings.HasPrefix(key, "URL"):
-				baseURL = val
-			case strings.HasPrefix(key, "令牌") || strings.HasPrefix(key, "token") || strings.HasPrefix(key, "Token"):
-				token = val
-			case strings.HasPrefix(key, "用户ID") || strings.HasPrefix(key, "user") || strings.HasPrefix(key, "User"):
-				userID = val
-			}
-		} else if baseURL == "" {
-			baseURL = line
-		} else if token == "" {
-			token = line
-		} else {
-			userID = line
-		}
-	}
-
-	if baseURL == "" && token == "" {
-		return
-	}
-
-	cfg.RelayBaseURL = baseURL
-	cfg.RelayToken = token
-	cfg.RelayUserID = userID
-	_ = SaveConfig(cfg)
-	rebuildProviders()
-	go refreshOnce()
-}
-
 func promptDialog(title, message string) string {
 	script := fmt.Sprintf(`
 set dialogResult to display dialog "%s" default answer "" with title "TokenTray — %s" buttons {"取消", "保存"} default button "保存"
@@ -404,12 +328,5 @@ return "__CANCELLED__"
 func escapeDialog(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `"`, `\"`)
-	return s
-}
-
-func defaultStr(s, def string) string {
-	if s == "" {
-		return def
-	}
 	return s
 }
