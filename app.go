@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -83,7 +84,7 @@ func rebuildProviders() {
 		providers = append(providers, NewDeepSeekProvider(cfg.DeepSeekAPIKey))
 	}
 	if cfg.RelayBaseURL != "" && cfg.RelayToken != "" {
-		providers = append(providers, NewRelayProvider(cfg.RelayBaseURL, cfg.RelayToken))
+		providers = append(providers, NewRelayProvider(cfg.RelayBaseURL, cfg.RelayToken, cfg.RelayUserID))
 	}
 	updateSettingsLabels()
 }
@@ -164,23 +165,47 @@ func refreshOnce() {
 }
 
 func renderMultiReport(reports []*UsageReport) {
-	allSegments := []DotColor{}
+	type windowEntry struct {
+		provider string
+		window   QuotaWindow
+	}
+
+	var allWindows []windowEntry
 	for _, r := range reports {
+		if r.Error != "" {
+			continue
+		}
 		for _, w := range r.Windows {
-			allSegments = append(allSegments, colorForFraction(w.Fraction()))
+			allWindows = append(allWindows, windowEntry{r.ProviderName, w})
 		}
 	}
-	if len(allSegments) == 0 {
-		allSegments = []DotColor{colGray}
+
+	sort.Slice(allWindows, func(i, j int) bool {
+		fi := allWindows[i].window.Fraction()
+		fj := allWindows[j].window.Fraction()
+		if fi == nil {
+			return false
+		}
+		if fj == nil {
+			return true
+		}
+		return *fi > *fj
+	})
+
+	topN := allWindows
+	if len(topN) > 3 {
+		topN = topN[:3]
 	}
 
-	// For >6 segments, widen the canvas would be needed. For now cap at 6
-	// by merging excess into the last visible segment.
-	if len(allSegments) > 6 {
-		allSegments = allSegments[:6]
+	segments := make([]DotColor, 0, len(topN))
+	for _, we := range topN {
+		segments = append(segments, colorForFraction(we.window.Fraction()))
+	}
+	if len(segments) == 0 {
+		segments = []DotColor{colGray}
 	}
 
-	systray.SetIcon(generateSegmentedIcon(allSegments))
+	systray.SetIcon(generateSegmentedIcon(segments))
 	systray.SetTitle("")
 
 	var tips []string
@@ -201,22 +226,28 @@ func renderMultiReport(reports []*UsageReport) {
 	}
 	systray.SetTooltip(strings.Join(tips, " | "))
 
+	for i := range winLabels {
+		winLabels[i].SetTitle("")
+		winLabels[i].Hide()
+	}
+	for i := range winValues {
+		winValues[i].Hide()
+	}
+	for i := range winResets {
+		winResets[i].Hide()
+	}
+
 	slotIdx := 0
-	var firstHeader bool
 	for ri, r := range reports {
-		if ri > 0 && slotIdx < 6 {
-			winLabels[slotIdx].SetTitle("   ───────────")
-			winLabels[slotIdx].Show()
+		if ri > 0 {
+			setSlot(slotIdx, "   ───────────────", true)
 			slotIdx++
 		}
 
 		statusIcon := statusDot(r.Status())
 		if r.Error != "" {
-			if slotIdx < 6 {
-				winLabels[slotIdx].SetTitle(fmt.Sprintf("   %s %s — ❌", statusIcon, r.ProviderName))
-				winLabels[slotIdx].Show()
-				slotIdx++
-			}
+			setSlot(slotIdx, fmt.Sprintf("   %s %s ❌ %s", statusIcon, r.ProviderName, r.Error), true)
+			slotIdx++
 			continue
 		}
 
@@ -224,12 +255,8 @@ func renderMultiReport(reports []*UsageReport) {
 		if r.PlanLevel != "" {
 			level = " · " + strings.ToUpper(r.PlanLevel)
 		}
-		if !firstHeader && slotIdx < 6 {
-			winLabels[slotIdx].SetTitle(fmt.Sprintf("   %s %s%s", statusIcon, r.ProviderName, level))
-			winLabels[slotIdx].Show()
-			firstHeader = true
-			slotIdx++
-		}
+		setSlot(slotIdx, fmt.Sprintf("   %s %s%s", statusIcon, r.ProviderName, level), true)
+		slotIdx++
 
 		for _, w := range r.Windows {
 			if slotIdx >= 6 {
@@ -244,25 +271,26 @@ func renderMultiReport(reports []*UsageReport) {
 			if w.Used != nil && w.Limit != nil {
 				counts = fmt.Sprintf("  (%s / %s)", formatCount(*w.Used), formatCount(*w.Limit))
 			}
-			winLabels[slotIdx].SetTitle(fmt.Sprintf("      %s %s  %s%s", w.Label, bar, pctStr, counts))
-			winLabels[slotIdx].Show()
+			setSlot(slotIdx, fmt.Sprintf("      %s %s  %s%s", w.Label, bar, pctStr, counts), true)
 			slotIdx++
 		}
-	}
-
-	for i := slotIdx; i < 6; i++ {
-		winLabels[i].Hide()
-	}
-	for i := range winValues {
-		winValues[i].Hide()
-	}
-	for i := range winResets {
-		winResets[i].Hide()
 	}
 
 	mError.Hide()
 	mUpdated.SetTitle("   更新于 " + time.Now().Format("15:04:05"))
 	mUpdated.Show()
+}
+
+func setSlot(idx int, title string, show bool) {
+	if idx >= 6 {
+		return
+	}
+	winLabels[idx].SetTitle(title)
+	if show {
+		winLabels[idx].Show()
+	} else {
+		winLabels[idx].Hide()
+	}
 }
 
 func handleZhipuSettings() {
@@ -294,22 +322,64 @@ func handleDeepSeekSettings() {
 }
 
 func handleRelaySettings() {
-	baseURL := promptDialog(
-		"中转站 — 地址",
-		fmt.Sprintf("当前: %s\n请输入中转站地址 (如 https://api.example.com):", defaultStr(cfg.RelayBaseURL, "未配置")),
-	)
-	if baseURL == "__CANCELLED__" {
+	current := "未配置"
+	if cfg.RelayBaseURL != "" {
+		current = fmt.Sprintf("%s\n令牌: %s", cfg.RelayBaseURL, maskKey(cfg.RelayToken))
+		if cfg.RelayUserID != "" {
+			current += fmt.Sprintf("\n用户ID: %s", cfg.RelayUserID)
+		}
+	}
+
+	msg := fmt.Sprintf(`当前配置:
+%s
+
+请输入中转站信息，格式（每行一项）:
+地址: https://your-relay.com
+令牌: 你的系统访问令牌
+用户ID: (可选，部分站点需要)
+
+获取令牌: 登录中转站 → 个人设置 → 系统访问令牌
+注意: 不是 sk- 开头的 API Key，是 Dashboard 令牌`, current)
+
+	input := promptDialog("中转站设置", msg)
+	if input == "__CANCELLED__" {
 		return
 	}
-	token := promptDialog(
-		"中转站 — Token",
-		"请输入 Dashboard Access Token\n(不是 sk- 开头的 API Key，是个人设置页面的系统令牌):",
-	)
-	if token == "__CANCELLED__" {
+
+	lines := strings.Split(strings.TrimSpace(input), "\n")
+	var baseURL, token, userID string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if idx := strings.Index(line, ":"); idx > 0 {
+			key := strings.TrimSpace(line[:idx])
+			val := strings.TrimSpace(line[idx+1:])
+			switch {
+			case strings.HasPrefix(key, "地址") || strings.HasPrefix(key, "url") || strings.HasPrefix(key, "URL"):
+				baseURL = val
+			case strings.HasPrefix(key, "令牌") || strings.HasPrefix(key, "token") || strings.HasPrefix(key, "Token"):
+				token = val
+			case strings.HasPrefix(key, "用户ID") || strings.HasPrefix(key, "user") || strings.HasPrefix(key, "User"):
+				userID = val
+			}
+		} else if baseURL == "" {
+			baseURL = line
+		} else if token == "" {
+			token = line
+		} else {
+			userID = line
+		}
+	}
+
+	if baseURL == "" && token == "" {
 		return
 	}
+
 	cfg.RelayBaseURL = baseURL
 	cfg.RelayToken = token
+	cfg.RelayUserID = userID
 	_ = SaveConfig(cfg)
 	rebuildProviders()
 	go refreshOnce()

@@ -7,10 +7,11 @@ import (
 )
 
 type Config struct {
-	ZhipuAPIKey     string `json:"zhipu_api_key"`
-	DeepSeekAPIKey  string `json:"deepseek_api_key"`
-	RelayBaseURL    string `json:"relay_base_url"`
-	RelayToken      string `json:"relay_token"`
+	ZhipuAPIKey    string `json:"zhipu_api_key"`
+	DeepSeekAPIKey string `json:"deepseek_api_key"`
+	RelayBaseURL   string `json:"relay_base_url"`
+	RelayToken     string `json:"relay_token"`
+	RelayUserID    string `json:"relay_user_id"`
 }
 
 func configPath() string {

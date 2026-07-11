@@ -10,41 +10,89 @@ import (
 )
 
 type RelayProvider struct {
-	BaseURL string
-	Token   string
-	Client  *http.Client
+	BaseURL  string
+	Token    string
+	UserID   string
+	Client   *http.Client
 }
 
-func NewRelayProvider(baseURL, token string) *RelayProvider {
+func NewRelayProvider(baseURL, token, userID string) *RelayProvider {
 	baseURL = strings.TrimRight(baseURL, "/")
 	return &RelayProvider{
 		BaseURL: baseURL,
 		Token:   token,
+		UserID:  strings.TrimSpace(userID),
 		Client:  &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
-func (p *RelayProvider) Name() string      { return "中转站" }
+func (p *RelayProvider) Name() string {
+	host := p.BaseURL
+	if idx := strings.Index(p.BaseURL, "://"); idx >= 0 {
+		host = p.BaseURL[idx+3:]
+	}
+	return "中转站 " + host
+}
+
 func (p *RelayProvider) ShortLabel() string { return "R" }
 
 type relayUserResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 	Data    struct {
+		ID        json.Number `json:"id"`
 		Quota     json.Number `json:"quota"`
 		UsedQuota json.Number `json:"used_quota"`
 		Username  string      `json:"username"`
+		Group     string      `json:"group"`
 	} `json:"data"`
 }
 
 func (p *RelayProvider) FetchStatus() (*UsageReport, error) {
+	authVariants := []string{
+		"Bearer " + p.Token,
+		p.Token,
+	}
+
+	var lastErr error
+	for _, auth := range authVariants {
+		r, err := p.tryFetch(auth)
+		if err == nil {
+			return r, nil
+		}
+		lastErr = err
+		if !isAuthError(err) {
+			return nil, err
+		}
+	}
+
+	if lastErr != nil {
+		return nil, fmt.Errorf(
+			"认证失败。请确认:\n"+
+				"1. Token 是 Dashboard 的「系统访问令牌」，不是 sk- API Key\n"+
+				"2. 在中转站 → 个人设置 → 生成系统访问令牌\n"+
+				"3. 原始错误: %v", lastErr,
+		)
+	}
+	return nil, fmt.Errorf("未知错误")
+}
+
+func isAuthError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "401") || strings.Contains(msg, "认证") || strings.Contains(msg, "auth")
+}
+
+func (p *RelayProvider) tryFetch(authHeader string) (*UsageReport, error) {
 	url := p.BaseURL + "/api/user/self"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+p.Token)
+	req.Header.Set("Authorization", authHeader)
 	req.Header.Set("User-Agent", "TokenTray/0.1")
+	if p.UserID != "" {
+		req.Header.Set("New-Api-User", p.UserID)
+	}
 
 	resp, err := p.Client.Do(req)
 	if err != nil {
@@ -52,24 +100,23 @@ func (p *RelayProvider) FetchStatus() (*UsageReport, error) {
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode == 401 {
-		return nil, fmt.Errorf("Token 无效（注意：需要 dashboard 的 access token，不是 sk- 开头的 API key）")
+		return nil, fmt.Errorf("HTTP 401")
 	}
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body)[:min(len(body), 100)])
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+		snippet := string(body)
+		if len(snippet) > 100 {
+			snippet = snippet[:100]
+		}
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, snippet)
 	}
 
 	var parsed relayUserResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, fmt.Errorf("解析失败: %w", err)
 	}
-
 	if !parsed.Success {
 		return nil, fmt.Errorf("接口返回失败: %s", parsed.Message)
 	}
@@ -89,25 +136,32 @@ func (p *RelayProvider) FetchStatus() (*UsageReport, error) {
 		pct = (used / total) * 100
 	}
 
-	quotaInt := int64(quota)
-	usedInt := int64(used)
-	totalInt := int64(total)
+	balanceYuan := quota / 500000.0
+	totalYuan := total / 500000.0
 
-	label := "中转站额度"
+	var label string
 	if parsed.Data.Username != "" {
-		label = fmt.Sprintf("中转站 · %s", parsed.Data.Username)
+		label = fmt.Sprintf("%s", parsed.Data.Username)
+	} else {
+		label = "额度"
 	}
+
+	balanceStr := fmt.Sprintf("%.2f", balanceYuan)
+	totalStr := fmt.Sprintf("%.2f", totalYuan)
+	label = fmt.Sprintf("余额 ¥%s / ¥%s", balanceStr, totalStr)
+
+	quotaInt := int64(quota)
+	totalInt := int64(total)
 
 	report.Windows = []QuotaWindow{{
 		Label:      label,
-		Used:       &usedInt,
+		Used:       &quotaInt,
 		Limit:      &totalInt,
 		Percentage: &pct,
 	}}
 
-	if quotaInt < 10000 {
-		gone := "余额不足"
-		report.Windows[0].Label = label + " ⚠ " + gone
+	if balanceYuan < 0.5 {
+		report.Windows[0].Label = "⚠️ " + label + " (不足)"
 	}
 
 	return report, nil
