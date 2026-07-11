@@ -33,3 +33,4 @@ build/
 !go.sum
 test_cgo
 *.bak*
+screenshots/fullscreen.png
