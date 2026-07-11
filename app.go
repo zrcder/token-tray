@@ -38,8 +38,9 @@ func onReady() {
 	systray.SetTitle("")
 	systray.SetTooltip("TokenTray — 加载中…")
 
-	mHeader = systray.AddMenuItem("⚪ 加载中…", "")
+	mHeader = systray.AddMenuItem("", "")
 	mHeader.Disable()
+	mHeader.Hide()
 	systray.AddSeparator()
 
 	for i := 0; i < 12; i++ {
@@ -57,7 +58,7 @@ func onReady() {
 	mUpdated.Hide()
 	systray.AddSeparator()
 
-	mRefresh = systray.AddMenuItem("↻ 立即刷新", "")
+	mRefresh = systray.AddMenuItem("↻ 刷新", "")
 	systray.AddSeparator()
 	mSetZhipu = systray.AddMenuItem("⚙ 智谱 API Key…", "")
 	mSetDeepSeek = systray.AddMenuItem("⚙ DeepSeek API Key…", "")
@@ -108,26 +109,18 @@ func intervalLabel() string {
 func onExit() {}
 
 func refreshLoop() {
-	requestRefresh()
+	doRefresh()
 	for {
 		mu.Lock()
 		interval := refreshInterval
 		mu.Unlock()
 		select {
 		case <-time.After(interval):
-			requestRefresh()
+			doRefresh()
 		case <-refreshCh:
-			requestRefresh()
+			doRefresh()
 		}
 	}
-}
-
-func requestRefresh() {
-	select {
-	case refreshCh <- struct{}{}:
-	default:
-	}
-	doRefresh()
 }
 
 func doRefresh() {
@@ -139,10 +132,13 @@ func doRefresh() {
 	if len(snapshot) == 0 {
 		systray.SetIcon(iconLoading)
 		systray.SetTitle("")
-		systray.SetTooltip("TokenTray — 未配置任何 Provider")
-		mHeader.SetTitle("⚫ 未配置 — 点击下方「⚙ 设置」添加 API Key")
-		mError.SetTitle("   ❌ 请先配置至少一个 Provider")
+		systray.SetTooltip("TokenTray — 未配置")
+		for i := range winLabels {
+			winLabels[i].Hide()
+		}
+		mError.SetTitle("⚠ 请点击「⚙ 设置」添加 API Key")
 		mError.Show()
+		mUpdated.Hide()
 		return
 	}
 
@@ -258,26 +254,27 @@ func renderMultiReport(reports []*UsageReport) {
 		winLabels[i].SetTitle("")
 		winLabels[i].Hide()
 	}
+	mHeader.Hide()
 
 	slotIdx := 0
 	for ri, r := range reports {
 		if ri > 0 {
-			setSlot(slotIdx, "   ───────────────", true)
+			setSlot(slotIdx, "", true)
 			slotIdx++
 		}
 
 		statusIcon := statusDot(r.Status())
 		if r.Error != "" {
-			setSlot(slotIdx, fmt.Sprintf("   %s %s ❌ %s", statusIcon, r.ProviderName, r.Error), true)
+			setSlot(slotIdx, fmt.Sprintf("%s %s — %s", statusIcon, r.ProviderName, r.Error), true)
 			slotIdx++
 			continue
 		}
 
 		level := ""
 		if r.PlanLevel != "" {
-			level = " · " + strings.ToUpper(r.PlanLevel)
+			level = " · " + r.PlanLevel
 		}
-		setSlot(slotIdx, fmt.Sprintf("   %s %s%s", statusIcon, r.ProviderName, level), true)
+		setSlot(slotIdx, fmt.Sprintf("%s %s%s", statusIcon, r.ProviderName, level), true)
 		slotIdx++
 
 		for _, w := range r.Windows {
@@ -286,20 +283,20 @@ func renderMultiReport(reports []*UsageReport) {
 			}
 			pctStr := "—"
 			if w.Percentage != nil {
-				pctStr = fmt.Sprintf("%.0f%%", *w.Percentage)
+				pctStr = fmt.Sprintf("%3.0f%%", *w.Percentage)
 			}
 			bar := formatBar(w.Fraction())
-			counts := ""
-			if w.Used != nil && w.Limit != nil {
-				counts = fmt.Sprintf("  (%s / %s)", formatCount(*w.Used), formatCount(*w.Limit))
+			reset := ""
+			if s := w.ResetInSeconds(); s != nil && *s > 0 {
+				reset = fmt.Sprintf("  ⏳%s", formatDuration(*s))
 			}
-			setSlot(slotIdx, fmt.Sprintf("      %s %s  %s%s", w.Label, bar, pctStr, counts), true)
+			setSlot(slotIdx, fmt.Sprintf("   %-4s %s  %s%s", w.Label, bar, pctStr, reset), true)
 			slotIdx++
 		}
 	}
 
 	mError.Hide()
-	mUpdated.SetTitle("   更新于 " + time.Now().Format("15:04:05"))
+	mUpdated.SetTitle(fmt.Sprintf("⏱ %s", time.Now().Format("15:04")))
 	mUpdated.Show()
 }
 

@@ -82,7 +82,7 @@ func (p *ZhipuProvider) FetchStatus() (*UsageReport, error) {
 		t := tokenLimits[0]
 		pct := t.Percentage
 		report.Windows = append(report.Windows, QuotaWindow{
-			Label:       "5 小时 Token",
+			Label:       "5h",
 			Used:        t.CurrentValue,
 			Limit:       t.Usage,
 			Percentage:  &pct,
@@ -93,7 +93,7 @@ func (p *ZhipuProvider) FetchStatus() (*UsageReport, error) {
 		t := tokenLimits[1]
 		pct := t.Percentage
 		report.Windows = append(report.Windows, QuotaWindow{
-			Label:       "每周 Token",
+			Label:       "每周",
 			Used:        t.CurrentValue,
 			Limit:       t.Usage,
 			Percentage:  &pct,
@@ -105,7 +105,7 @@ func (p *ZhipuProvider) FetchStatus() (*UsageReport, error) {
 		if l.Type == "TIME_LIMIT" {
 			pct := l.Percentage
 			report.Windows = append(report.Windows, QuotaWindow{
-				Label:       "MCP 月度",
+				Label:       "MCP",
 				Used:        l.CurrentValue,
 				Limit:       l.Usage,
 				Percentage:  &pct,

@@ -91,12 +91,11 @@ func (p *DeepSeekProvider) FetchStatus() (*UsageReport, error) {
 		pct = 10
 	}
 
-	balInt := int64(balance * 100)
 	report.Windows = []QuotaWindow{{
-		Label:      fmt.Sprintf("余额 ¥%s", info.TotalBalance),
-		Used:       &balInt,
+		Label:      "余额",
 		Percentage: &pct,
 	}}
+	report.PlanLevel = fmt.Sprintf("¥%s", info.TotalBalance)
 
 	return report, nil
 }
