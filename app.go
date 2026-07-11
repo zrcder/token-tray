@@ -10,23 +10,27 @@ import (
 	"fyne.io/systray"
 )
 
-const refreshInterval = 60 * time.Second
-
 var (
-	cfg       Config
-	providers []Provider
+	cfg             Config
+	providers       []Provider
+	refreshInterval = 5 * time.Minute
+	refreshCh       = make(chan struct{}, 1)
 
-	mHeader   *systray.MenuItem
-	winLabels [6]*systray.MenuItem
-	winValues [6]*systray.MenuItem
-	winResets [6]*systray.MenuItem
-	mError    *systray.MenuItem
-	mUpdated  *systray.MenuItem
-	mRefresh  *systray.MenuItem
+	mHeader    *systray.MenuItem
+	winLabels  [12]*systray.MenuItem
+	winValues  [12]*systray.MenuItem
+	winResets  [12]*systray.MenuItem
+	mError     *systray.MenuItem
+	mUpdated   *systray.MenuItem
+	mRefresh   *systray.MenuItem
 
 	mSetZhipu    *systray.MenuItem
 	mSetDeepSeek *systray.MenuItem
+	mInterval    *systray.MenuItem
 	mQuit        *systray.MenuItem
+
+	intervalOptions = []time.Duration{1 * time.Minute, 5 * time.Minute, 10 * time.Minute, 30 * time.Minute}
+	intervalIdx     = 1
 )
 
 func onReady() {
@@ -38,7 +42,7 @@ func onReady() {
 	mHeader.Disable()
 	systray.AddSeparator()
 
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 12; i++ {
 		winLabels[i] = systray.AddMenuItem("", "")
 		winValues[i] = systray.AddMenuItem("", "")
 		winResets[i] = systray.AddMenuItem("", "")
@@ -63,6 +67,7 @@ func onReady() {
 	systray.AddSeparator()
 	mSetZhipu = systray.AddMenuItem("⚙ 智谱 API Key…", "")
 	mSetDeepSeek = systray.AddMenuItem("⚙ DeepSeek API Key…", "")
+	mInterval = systray.AddMenuItem(intervalLabel(), "")
 	systray.AddSeparator()
 	mQuit = systray.AddMenuItem("退出", "")
 
@@ -96,13 +101,25 @@ func configMark(key string) string {
 	return "○"
 }
 
+func intervalLabel() string {
+	m := intervalOptions[intervalIdx].Minutes()
+	if m < 1 {
+		return fmt.Sprintf("⏱ 刷新间隔: %d秒", int(intervalOptions[intervalIdx].Seconds()))
+	}
+	return fmt.Sprintf("⏱ 刷新间隔: %d分钟", int(m))
+}
+
 func onExit() {}
 
 func refreshLoop() {
 	refreshOnce()
-	ticker := time.NewTicker(refreshInterval)
-	for range ticker.C {
-		refreshOnce()
+	for {
+		select {
+		case <-time.After(refreshInterval):
+			refreshOnce()
+		case <-refreshCh:
+			refreshOnce()
+		}
 	}
 }
 
@@ -115,7 +132,11 @@ func clickLoop() {
 			handleZhipuSettings()
 		case <-mSetDeepSeek.ClickedCh:
 			handleDeepSeekSettings()
-		case <-mQuit.ClickedCh:
+		case <-mInterval.ClickedCh:
+			intervalIdx = (intervalIdx + 1) % len(intervalOptions)
+			refreshInterval = intervalOptions[intervalIdx]
+			mInterval.SetTitle(intervalLabel())
+			refreshCh <- struct{}{}
 			systray.Quit()
 			return
 		}
@@ -218,12 +239,6 @@ func renderMultiReport(reports []*UsageReport) {
 		winLabels[i].SetTitle("")
 		winLabels[i].Hide()
 	}
-	for i := range winValues {
-		winValues[i].Hide()
-	}
-	for i := range winResets {
-		winResets[i].Hide()
-	}
 
 	slotIdx := 0
 	for ri, r := range reports {
@@ -247,7 +262,7 @@ func renderMultiReport(reports []*UsageReport) {
 		slotIdx++
 
 		for _, w := range r.Windows {
-			if slotIdx >= 6 {
+			if slotIdx >= 12 {
 				break
 			}
 			pctStr := "—"
@@ -270,7 +285,7 @@ func renderMultiReport(reports []*UsageReport) {
 }
 
 func setSlot(idx int, title string, show bool) {
-	if idx >= 6 {
+	if idx >= 12 {
 		return
 	}
 	winLabels[idx].SetTitle(title)
