@@ -43,7 +43,7 @@ const barWidth = 10
 
 func formatBar(fraction *float64) string {
 	if fraction == nil {
-		return strings.Repeat("░", barWidth)
+		return strings.Repeat("□", barWidth)
 	}
 	f := *fraction
 	if f < 0 {
@@ -53,14 +53,7 @@ func formatBar(fraction *float64) string {
 		f = 1
 	}
 	filled := int(f * float64(barWidth))
-	partial := f*float64(barWidth) - float64(filled)
-	blocks := strings.Repeat("█", filled)
-	if partial >= 0.3 && filled < barWidth {
-		blocks += "▓"
-		filled++
-	}
-	blocks += strings.Repeat("░", barWidth-filled)
-	return blocks
+	return strings.Repeat("■", filled) + strings.Repeat("□", barWidth-filled)
 }
 
 func statusDot(s ProviderStatus) string {

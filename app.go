@@ -281,16 +281,16 @@ func renderMultiReport(reports []*UsageReport) {
 			if slotIdx >= 12 {
 				break
 			}
-			pctStr := "—"
+			pctStr := "  —"
 			if w.Percentage != nil {
-				pctStr = fmt.Sprintf("%.0f%%", *w.Percentage)
+				pctStr = fmt.Sprintf("%3.0f%%", *w.Percentage)
 			}
 			bar := formatBar(w.Fraction())
 			reset := ""
 			if s := w.ResetInSeconds(); s != nil && *s > 0 {
-				reset = fmt.Sprintf(" ⏳%s", formatDuration(*s))
+				reset = fmt.Sprintf(" %s", formatDuration(*s))
 			}
-			setSlot(slotIdx, fmt.Sprintf("   %s  %s  %s%s", bar, w.Label, pctStr, reset), true)
+			setSlot(slotIdx, fmt.Sprintf("   %s %s  %s%s", bar, pctStr, w.Label, reset), true)
 			slotIdx++
 		}
 	}
