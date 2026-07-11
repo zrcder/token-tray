@@ -27,10 +27,9 @@ var (
 )
 
 func onReady() {
-	fmt.Println("[onReady] entered")
-	systray.SetTitle("•••")
-	systray.SetTooltip("TokenTray")
-	fmt.Println("[onReady] title set")
+	systray.SetIcon(iconGray)
+	systray.SetTitle("")
+	systray.SetTooltip("TokenTray — 加载中…")
 
 	mHeader = systray.AddMenuItem("⚪ 加载中…", "")
 	mHeader.Disable()
@@ -96,8 +95,9 @@ func clickLoop() {
 
 func refreshOnce() {
 	if provider == nil {
-		setTitle("智 ⚠")
-		mHeader.SetTitle("⚫ 未配置")
+		systray.SetIcon(iconGray)
+		systray.SetTitle("")
+		systray.SetTooltip("TokenTray — 未配置 API Key")
 		mHeader.SetTitle("⚫ 未配置 — 点击「⚙ 设置…」")
 		mError.SetTitle("   ❌ 请点击「⚙ 设置…」填入 API Key")
 		mError.Show()
@@ -106,8 +106,10 @@ func refreshOnce() {
 
 	report, err := provider.FetchStatus()
 	if err != nil {
-		setTitle("智 ⚠")
-		mHeader.SetTitle(fmt.Sprintf("⚫ 智谱 GLM"))
+		systray.SetIcon(iconGray)
+		systray.SetTitle("")
+		systray.SetTooltip("TokenTray — " + err.Error())
+		mHeader.SetTitle("⚫ 智谱 GLM")
 		mError.SetTitle("   ❌ " + err.Error())
 		mError.Show()
 		mUpdated.SetTitle("   更新于 " + time.Now().Format("15:04:05"))
@@ -118,7 +120,9 @@ func refreshOnce() {
 }
 
 func renderReport(r *UsageReport) {
-	// Title: short label + max percentage
+	systray.SetIcon(iconForStatus(r.Status()))
+	systray.SetTitle("")
+
 	maxPct := -1.0
 	for _, w := range r.Windows {
 		if w.Percentage != nil && *w.Percentage > maxPct {
@@ -126,12 +130,11 @@ func renderReport(r *UsageReport) {
 		}
 	}
 	if maxPct >= 0 {
-		setTitle(fmt.Sprintf("%s %.0f%%", r.ShortLabel, maxPct))
+		systray.SetTooltip(fmt.Sprintf("智谱 GLM — 最高用量 %.0f%%", maxPct))
 	} else {
-		setTitle(r.ShortLabel)
+		systray.SetTooltip("智谱 GLM")
 	}
 
-	// Header with status dot + plan level
 	level := ""
 	if r.PlanLevel != "" {
 		level = " · " + strings.ToUpper(r.PlanLevel)
@@ -173,10 +176,6 @@ func renderReport(r *UsageReport) {
 	mError.Hide()
 	mUpdated.SetTitle("   更新于 " + r.LastUpdated.Format("15:04:05"))
 	mUpdated.Show()
-}
-
-func setTitle(s string) {
-	systray.SetTitle(s)
 }
 
 func handleSettings() {
