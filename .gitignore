@@ -34,3 +34,4 @@ build/
 test_cgo
 *.bak*
 screenshots/fullscreen.png
+docs/
