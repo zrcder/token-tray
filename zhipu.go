@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"time"
 )
 
@@ -16,6 +15,8 @@ var zhipuEndpoints = []string{
 
 type zhipuLimit struct {
 	Type          string  `json:"type"`
+	Unit          *int    `json:"unit"`
+	Number        *int    `json:"number"`
 	Usage         *int64  `json:"usage"`
 	CurrentValue  *int64  `json:"currentValue"`
 	Remaining     *int64  `json:"remaining"`
@@ -60,44 +61,53 @@ func (p *ZhipuProvider) FetchStatus() (*UsageReport, error) {
 		LastUpdated:  time.Now(),
 	}
 
-	var tokenLimits []zhipuLimit
-	for _, l := range resp.Data.Limits {
-		if l.Type == "TOKENS_LIMIT" {
-			tokenLimits = append(tokenLimits, l)
+	var token5h, tokenWeekly *zhipuLimit
+	for i := range resp.Data.Limits {
+		l := &resp.Data.Limits[i]
+		if l.Type != "TOKENS_LIMIT" {
+			continue
+		}
+		if l.Unit != nil {
+			switch *l.Unit {
+			case 3:
+				token5h = l
+			case 6:
+				tokenWeekly = l
+			}
 		}
 	}
-	sort.Slice(tokenLimits, func(i, j int) bool {
-		a := int64(0)
-		b := int64(0)
-		if tokenLimits[i].NextResetTime != nil {
-			a = *tokenLimits[i].NextResetTime
-		}
-		if tokenLimits[j].NextResetTime != nil {
-			b = *tokenLimits[j].NextResetTime
-		}
-		return a < b
-	})
 
-	if len(tokenLimits) >= 1 {
-		t := tokenLimits[0]
-		pct := t.Percentage
+	if token5h == nil && tokenWeekly == nil && len(resp.Data.Limits) > 0 {
+		for i := range resp.Data.Limits {
+			l := &resp.Data.Limits[i]
+			if l.Type == "TOKENS_LIMIT" {
+				if token5h == nil {
+					token5h = l
+				} else {
+					tokenWeekly = l
+				}
+			}
+		}
+	}
+
+	if token5h != nil {
+		pct := token5h.Percentage
 		report.Windows = append(report.Windows, QuotaWindow{
 			Label:       "时度",
-			Used:        t.CurrentValue,
-			Limit:       t.Usage,
+			Used:        token5h.CurrentValue,
+			Limit:       token5h.Usage,
 			Percentage:  &pct,
-			NextResetMs: t.NextResetTime,
+			NextResetMs: token5h.NextResetTime,
 		})
 	}
-	if len(tokenLimits) >= 2 {
-		t := tokenLimits[1]
-		pct := t.Percentage
+	if tokenWeekly != nil {
+		pct := tokenWeekly.Percentage
 		report.Windows = append(report.Windows, QuotaWindow{
 			Label:       "周度",
-			Used:        t.CurrentValue,
-			Limit:       t.Usage,
+			Used:        tokenWeekly.CurrentValue,
+			Limit:       tokenWeekly.Usage,
 			Percentage:  &pct,
-			NextResetMs: t.NextResetTime,
+			NextResetMs: tokenWeekly.NextResetTime,
 		})
 	}
 
