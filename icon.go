@@ -12,7 +12,7 @@ type DotColor struct {
 }
 
 var (
-	colGreen  = DotColor{0x34, 0xC7, 0x59, 0xFF}
+	colBlue   = DotColor{0x30, 0xB0, 0xF0, 0xFF}
 	colYellow = DotColor{0xFF, 0xCC, 0x00, 0xFF}
 	colRed    = DotColor{0xFF, 0x3B, 0x30, 0xFF}
 	colGray   = DotColor{0x8E, 0x8E, 0x93, 0xFF}
@@ -29,7 +29,7 @@ func colorForFraction(f *float64) DotColor {
 	case v >= 0.7:
 		return colYellow
 	default:
-		return colGray
+		return colBlue
 	}
 }
 
