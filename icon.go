@@ -29,7 +29,7 @@ func colorForFraction(f *float64) DotColor {
 	case v >= 0.7:
 		return colYellow
 	default:
-		return colGreen
+		return colGray
 	}
 }
 
