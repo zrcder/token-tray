@@ -186,10 +186,3 @@ func (p *ZhipuProvider) fetchOne(url string) (*zhipuResponse, error) {
 	}
 	return &parsed, nil
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

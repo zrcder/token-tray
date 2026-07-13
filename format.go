@@ -80,23 +80,3 @@ func maskKey(k string) string {
 	}
 	return "已配置"
 }
-
-func displayWidth(s string) int {
-	w := 0
-	for _, r := range s {
-		if r > 0x2E80 {
-			w += 2
-		} else {
-			w += 1
-		}
-	}
-	return w
-}
-
-func padRight(s string, targetWidth int) string {
-	w := displayWidth(s)
-	if w >= targetWidth {
-		return s
-	}
-	return s + strings.Repeat(" ", targetWidth-w)
-}

@@ -1,23 +1,24 @@
 # macOS
 .DS_Store
-.AppleDouble
-.LSOverride
 
-# Go
+# Go binaries
 TokenTray
-TokenTray.app/
+TokenTray-linux
+TokenTray-linux-*
+TokenTray.exe
 *.exe
-*.exe~
 *.dll
 *.so
 *.dylib
-*.test
-*.out
 
 # Build artifacts
 dist/
 build/
+release/
 *.dmg
+
+# Icon intermediates (icon.icns is tracked)
+icon.iconset/
 
 # IDE
 .vscode/
@@ -26,13 +27,14 @@ build/
 *.swo
 *~
 
-# Config (sensitive — never commit)
-*.toml
+# Config (sensitive)
 *.json
-!go.mod
-!go.sum
-test_cgo
+*.toml
 *.bak*
-screenshots/fullscreen.png
+
+# Private docs
 docs/
+
+# Screenshots not for public repo
+screenshots/fullscreen.png
 screenshots/下载.png

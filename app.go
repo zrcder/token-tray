@@ -135,7 +135,7 @@ func doRefresh() {
 		for i := range winLabels {
 			winLabels[i].Hide()
 		}
-		mError.SetTitle("⚠ 请点击「⚙ 设置」添加 API Key")
+		mError.SetTitle("⚠ 请点击下方「⚙ 智谱 Key」或「⚙ DeepSeek Key」添加 API Key")
 		mError.Show()
 		mUpdated.Hide()
 		return

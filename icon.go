@@ -33,8 +33,7 @@ func colorForFraction(f *float64) DotColor {
 	}
 }
 
-// generateSegmentedIcon draws a horizontal bar split into N independently-colored segments.
-// Leftmost = 5h, middle = weekly, rightmost = MCP. Each segment is a solid rectangle.
+// generateSegmentedIcon draws a horizontal bar split into N independently-colored segments. Each segment is a solid rectangle.
 func generateSegmentedIcon(segments []DotColor) []byte {
 	const (
 		canvasW = 48
