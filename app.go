@@ -82,8 +82,13 @@ func onReady() {
 	mQuit = systray.AddMenuItem("退出", "")
 
 	mu.Lock()
-	cfg = LoadConfig()
-	rebuildProvidersLocked()
+	if testMode {
+		providers = makeMockProviders()
+		hideSettingsMenu()
+	} else {
+		cfg = LoadConfig()
+		rebuildProvidersLocked()
+	}
 	mu.Unlock()
 
 	go refreshLoop()
@@ -128,6 +133,15 @@ func intervalLabel() string {
 }
 
 func onExit() {}
+
+func hideSettingsMenu() {
+	mZhipuLabel.Hide()
+	mZhipuEdit.Hide()
+	mZhipuDelete.Hide()
+	mDSLabel.Hide()
+	mDSEdit.Hide()
+	mDSDelete.Hide()
+}
 
 func refreshLoop() {
 	doRefresh()
@@ -188,13 +202,21 @@ func clickLoop() {
 			default:
 			}
 		case <-mZhipuEdit.ClickedCh:
-			go handleEditProvider("智谱 GLM", &cfg.ZhipuAPIKey, true)
+			if !testMode {
+				go handleEditProvider("智谱 GLM", &cfg.ZhipuAPIKey, true)
+			}
 		case <-mZhipuDelete.ClickedCh:
-			go handleDeleteProvider("智谱 GLM", &cfg.ZhipuAPIKey)
+			if !testMode {
+				go handleDeleteProvider("智谱 GLM", &cfg.ZhipuAPIKey)
+			}
 		case <-mDSEdit.ClickedCh:
-			go handleEditProvider("DeepSeek", &cfg.DeepSeekAPIKey, false)
+			if !testMode {
+				go handleEditProvider("DeepSeek", &cfg.DeepSeekAPIKey, false)
+			}
 		case <-mDSDelete.ClickedCh:
-			go handleDeleteProvider("DeepSeek", &cfg.DeepSeekAPIKey)
+			if !testMode {
+				go handleDeleteProvider("DeepSeek", &cfg.DeepSeekAPIKey)
+			}
 		case <-mInterval.ClickedCh:
 			mu.Lock()
 			intervalIdx = (intervalIdx + 1) % len(intervalOptions)
@@ -389,6 +411,10 @@ func handleDeleteProvider(name string, keyPtr *string) {
 }
 
 func handleAbout() {
+	extra := ""
+	if testMode {
+		extra = "\n\n⚡ 测试模式 — 使用虚拟数据，无真实 API 调用"
+	}
 	infoDialog("关于",
-		fmt.Sprintf("TokenTray %s\n\nmacOS / Windows / Linux 菜单栏大模型用量监控\n\n支持: 智谱 GLM · DeepSeek\n开源: github.com/zrcder/token-tray", appVersion))
+		fmt.Sprintf("TokenTray %s\n\nmacOS / Windows / Linux 菜单栏大模型用量监控\n\n支持: 智谱 GLM · DeepSeek\n开源: github.com/zrcder/token-tray%s", appVersion, extra))
 }
