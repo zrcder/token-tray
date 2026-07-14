@@ -29,3 +29,18 @@ func escapeDialog(s string) string {
 	s = strings.ReplaceAll(s, `"`, `\"`)
 	return s
 }
+
+func confirmDialog(title, message string) bool {
+	script := fmt.Sprintf(`
+set confirmResult to display dialog "%s" with title "TokenTray" buttons {"取消", "删除"} default button "取消" with icon caution
+if button returned of confirmResult = "删除" then
+	return "yes"
+end if
+return "no"
+`, escapeDialog(message))
+	out, err := exec.Command("osascript", "-e", script).Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "yes"
+}

@@ -24,3 +24,16 @@ func promptDialog(title, message string) string {
 	}
 	return result
 }
+
+func confirmDialog(title, message string) bool {
+	escapedMsg := strings.ReplaceAll(message, `"`, "`")
+	script := fmt.Sprintf(
+		`Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show("%s", "TokenTray", "YesNo", "Warning") -eq "Yes"`,
+		escapedMsg,
+	)
+	out, err := exec.Command("powershell", "-NoProfile", "-Command", script).Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "True"
+}

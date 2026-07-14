@@ -27,3 +27,10 @@ func promptDialog(title, message string) string {
 	}
 	return input
 }
+
+func confirmDialog(title, message string) bool {
+	err := exec.Command("zenity", "--question",
+		"--title=TokenTray",
+		"--text="+message).Run()
+	return err == nil
+}

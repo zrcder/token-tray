@@ -10,6 +10,8 @@ import (
 	"fyne.io/systray"
 )
 
+const appVersion = "v0.1.0"
+
 var (
 	mu              sync.Mutex
 	cfg             Config
@@ -23,10 +25,15 @@ var (
 	mUpdated  *systray.MenuItem
 	mRefresh  *systray.MenuItem
 
-	mSetZhipu    *systray.MenuItem
-	mSetDeepSeek *systray.MenuItem
-	mInterval    *systray.MenuItem
-	mQuit        *systray.MenuItem
+	mZhipuLabel   *systray.MenuItem
+	mZhipuEdit    *systray.MenuItem
+	mZhipuDelete  *systray.MenuItem
+	mDSLabel      *systray.MenuItem
+	mDSEdit       *systray.MenuItem
+	mDSDelete     *systray.MenuItem
+	mInterval     *systray.MenuItem
+	mAbout        *systray.MenuItem
+	mQuit         *systray.MenuItem
 
 	intervalOptions = []time.Duration{1 * time.Minute, 5 * time.Minute, 10 * time.Minute, 30 * time.Minute}
 	intervalIdx     = 1
@@ -58,11 +65,20 @@ func onReady() {
 	systray.AddSeparator()
 
 	mRefresh = systray.AddMenuItem("↻ 刷新", "")
-	systray.AddSeparator()
-	mSetZhipu = systray.AddMenuItem("⚙ 智谱 API Key…", "")
-	mSetDeepSeek = systray.AddMenuItem("⚙ DeepSeek API Key…", "")
 	mInterval = systray.AddMenuItem(intervalLabel(), "")
 	systray.AddSeparator()
+
+	mZhipuLabel = systray.AddMenuItem("", "")
+	mZhipuLabel.Disable()
+	mZhipuEdit = systray.AddMenuItem("", "")
+	mZhipuDelete = systray.AddMenuItem("", "")
+	mDSLabel = systray.AddMenuItem("", "")
+	mDSLabel.Disable()
+	mDSEdit = systray.AddMenuItem("", "")
+	mDSDelete = systray.AddMenuItem("", "")
+	systray.AddSeparator()
+
+	mAbout = systray.AddMenuItem(fmt.Sprintf("关于 TokenTray %s", appVersion), "")
 	mQuit = systray.AddMenuItem("退出", "")
 
 	mu.Lock()
@@ -86,15 +102,21 @@ func rebuildProvidersLocked() {
 }
 
 func updateSettingsLabels() {
-	mSetZhipu.SetTitle(fmt.Sprintf("⚙ 智谱 API Key… %s", configMark(cfg.ZhipuAPIKey)))
-	mSetDeepSeek.SetTitle(fmt.Sprintf("⚙ DeepSeek API Key… %s", configMark(cfg.DeepSeekAPIKey)))
+	updateProviderMenu(mZhipuLabel, mZhipuEdit, mZhipuDelete, "智谱 GLM", cfg.ZhipuAPIKey)
+	updateProviderMenu(mDSLabel, mDSEdit, mDSDelete, "DeepSeek", cfg.DeepSeekAPIKey)
 }
 
-func configMark(key string) string {
+func updateProviderMenu(label, edit, delete_ *systray.MenuItem, name, key string) {
 	if key != "" {
-		return "●"
+		label.SetTitle(fmt.Sprintf("  %s  ● 已配置", name))
+		edit.SetTitle("    ✎ 修改 API Key…")
+		delete_.SetTitle("    ✕ 删除")
+		delete_.Show()
+	} else {
+		label.SetTitle(fmt.Sprintf("  %s  ○ 未配置", name))
+		edit.SetTitle("    ✎ 添加 API Key…")
+		delete_.Hide()
 	}
-	return "○"
 }
 
 func intervalLabel() string {
@@ -135,7 +157,7 @@ func doRefresh() {
 		for i := range winLabels {
 			winLabels[i].Hide()
 		}
-		mError.SetTitle("⚠ 请点击下方「⚙ 智谱 Key」或「⚙ DeepSeek Key」添加 API Key")
+		mError.SetTitle("⚠ 请点击下方「✎ 添加 API Key」配置 Provider")
 		mError.Show()
 		mUpdated.Hide()
 		return
@@ -165,10 +187,14 @@ func clickLoop() {
 			case refreshCh <- struct{}{}:
 			default:
 			}
-		case <-mSetZhipu.ClickedCh:
-			go handleZhipuSettings()
-		case <-mSetDeepSeek.ClickedCh:
-			go handleDeepSeekSettings()
+		case <-mZhipuEdit.ClickedCh:
+			go handleEditProvider("智谱 GLM", &cfg.ZhipuAPIKey, true)
+		case <-mZhipuDelete.ClickedCh:
+			go handleDeleteProvider("智谱 GLM", &cfg.ZhipuAPIKey)
+		case <-mDSEdit.ClickedCh:
+			go handleEditProvider("DeepSeek", &cfg.DeepSeekAPIKey, false)
+		case <-mDSDelete.ClickedCh:
+			go handleDeleteProvider("DeepSeek", &cfg.DeepSeekAPIKey)
 		case <-mInterval.ClickedCh:
 			mu.Lock()
 			intervalIdx = (intervalIdx + 1) % len(intervalOptions)
@@ -180,6 +206,8 @@ func clickLoop() {
 			case refreshCh <- struct{}{}:
 			default:
 			}
+		case <-mAbout.ClickedCh:
+			go handleAbout()
 		case <-mQuit.ClickedCh:
 			systray.Quit()
 			return
@@ -311,19 +339,24 @@ func setSlot(idx int, title string, show bool) {
 	}
 }
 
-func handleZhipuSettings() {
-	newKey := promptDialog(
-		"智谱 API Key",
-		fmt.Sprintf("当前: %s\n请输入智谱 API Key:", maskKey(cfg.ZhipuAPIKey)),
-	)
+func handleEditProvider(name string, keyPtr *string, isZhipu bool) {
+	hint := "请输入 API Key:"
+	if isZhipu {
+		hint = "请输入智谱 API Key:"
+	} else {
+		hint = "请输入 DeepSeek API Key (sk-开头):"
+	}
+	prompt := fmt.Sprintf("当前: %s\n%s", maskKey(*keyPtr), hint)
+
+	newKey := promptDialog(name, prompt)
 	if newKey == "__CANCELLED__" {
 		return
 	}
 	mu.Lock()
-	cfg.ZhipuAPIKey = newKey
+	*keyPtr = newKey
 	if err := SaveConfig(cfg); err != nil {
 		mu.Unlock()
-		mError.SetTitle(fmt.Sprintf("   ❌ 保存失败: %v", err))
+		mError.SetTitle(fmt.Sprintf("❌ 保存失败: %v", err))
 		mError.Show()
 		return
 	}
@@ -335,19 +368,15 @@ func handleZhipuSettings() {
 	}
 }
 
-func handleDeepSeekSettings() {
-	newKey := promptDialog(
-		"DeepSeek API Key",
-		fmt.Sprintf("当前: %s\n请输入 DeepSeek API Key (sk-开头):", maskKey(cfg.DeepSeekAPIKey)),
-	)
-	if newKey == "__CANCELLED__" {
+func handleDeleteProvider(name string, keyPtr *string) {
+	if !confirmDialog(name, fmt.Sprintf("确定删除 %s 的 API Key？\n删除后将停止监控该 Provider。", name)) {
 		return
 	}
 	mu.Lock()
-	cfg.DeepSeekAPIKey = newKey
+	*keyPtr = ""
 	if err := SaveConfig(cfg); err != nil {
 		mu.Unlock()
-		mError.SetTitle(fmt.Sprintf("   ❌ 保存失败: %v", err))
+		mError.SetTitle(fmt.Sprintf("❌ 保存失败: %v", err))
 		mError.Show()
 		return
 	}
@@ -357,4 +386,9 @@ func handleDeepSeekSettings() {
 	case refreshCh <- struct{}{}:
 	default:
 	}
+}
+
+func handleAbout() {
+	promptDialog("关于 TokenTray",
+		fmt.Sprintf("TokenTray %s\n\nmacOS / Windows / Linux 菜单栏大模型用量监控\n\n支持: 智谱 GLM · DeepSeek\n开源: github.com/zrcder/token-tray", appVersion))
 }
