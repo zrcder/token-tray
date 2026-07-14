@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"runtime"
 )
 
 type DotColor struct {
@@ -33,13 +34,12 @@ func colorForFraction(f *float64) DotColor {
 	}
 }
 
-// generateSegmentedIcon draws a horizontal bar split into N independently-colored segments. Each segment is a solid rectangle.
 func generateSegmentedIcon(segments []DotColor) []byte {
 	const (
 		canvasW = 48
-		canvasH = 14
+		canvasH = 16
 		gap     = 2
-		padY    = 1
+		padY    = 2
 	)
 
 	n := len(segments)
@@ -50,6 +50,14 @@ func generateSegmentedIcon(segments []DotColor) []byte {
 
 	segW := (canvasW - gap*(n-1)) / n
 	img := image.NewRGBA(image.Rect(0, 0, canvasW, canvasH))
+
+	if runtime.GOOS == "windows" {
+		for y := 0; y < canvasH; y++ {
+			for x := 0; x < canvasW; x++ {
+				img.SetRGBA(x, y, color.RGBA{30, 30, 30, 255})
+			}
+		}
+	}
 
 	for i, col := range segments {
 		x0 := i * (segW + gap)
