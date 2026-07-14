@@ -37,3 +37,12 @@ func confirmDialog(title, message string) bool {
 	}
 	return strings.TrimSpace(string(out)) == "True"
 }
+
+func infoDialog(title, message string) {
+	escapedMsg := strings.ReplaceAll(message, `"`, "`")
+	script := fmt.Sprintf(
+		`Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show("%s", "TokenTray — %s", "OK", "Information")`,
+		escapedMsg, strings.ReplaceAll(title, `"`, "`"),
+	)
+	_ = exec.Command("powershell", "-NoProfile", "-Command", script).Run()
+}

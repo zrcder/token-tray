@@ -44,3 +44,10 @@ return "no"
 	}
 	return strings.TrimSpace(string(out)) == "yes"
 }
+
+func infoDialog(title, message string) {
+	script := fmt.Sprintf(`
+display dialog "%s" with title "TokenTray — %s" buttons {"好"} default button "好"
+`, escapeDialog(message), escapeDialog(title))
+	_ = exec.Command("osascript", "-e", script).Run()
+}

@@ -389,6 +389,6 @@ func handleDeleteProvider(name string, keyPtr *string) {
 }
 
 func handleAbout() {
-	promptDialog("关于 TokenTray",
+	infoDialog("关于",
 		fmt.Sprintf("TokenTray %s\n\nmacOS / Windows / Linux 菜单栏大模型用量监控\n\n支持: 智谱 GLM · DeepSeek\n开源: github.com/zrcder/token-tray", appVersion))
 }

@@ -34,3 +34,9 @@ func confirmDialog(title, message string) bool {
 		"--text="+message).Run()
 	return err == nil
 }
+
+func infoDialog(title, message string) {
+	_ = exec.Command("zenity", "--info",
+		"--title=TokenTray",
+		"--text="+message).Run()
+}
