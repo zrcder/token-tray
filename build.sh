@@ -51,6 +51,29 @@ echo "[build] registering with LaunchServices..."
     "$APP" 2>/dev/null || true
 
 echo ""
-echo "✅ Build complete."
+echo "✅ .app bundle complete."
 du -sh "$APP"
-echo "   Launch: open $APP"
+
+if [ "${1:-}" = "app-only" ]; then
+    exit 0
+fi
+
+echo ""
+echo "[dmg] creating disk image..."
+DMG="dist/TokenTray.dmg"
+rm -f "$DMG"
+
+STAGING=$(mktemp -d /tmp/tokentray-dmg.XXXXXX)
+cp -R "$APP" "$STAGING/"
+ln -s /Applications "$STAGING/Applications"
+
+hdiutil create -volname "TokenTray" -fs HFS+ \
+    -srcfolder "$STAGING" -ov -format UDZO \
+    "$DMG" 2>&1 | grep -E "created|error" || true
+
+rm -rf "$STAGING"
+
+echo ""
+echo "✅ DMG complete."
+du -sh "$DMG"
+echo "   Install: open $DMG"
