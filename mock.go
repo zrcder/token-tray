@@ -40,75 +40,53 @@ var (
 func testScenarios() []testScenario {
 	now := time.Now()
 	h1 := now.Add(4 * time.Hour).UnixMilli()
-	h5 := now.Add(12 * time.Hour).UnixMilli()
-	d3 := now.Add(3 * time.Hour).UnixMilli()
 	w5 := now.Add(5 * 24 * time.Hour).UnixMilli()
+	d3 := now.Add(3 * time.Hour).UnixMilli()
+	h8 := now.Add(8 * time.Hour).UnixMilli()
 
 	pct := func(v float64) *float64 { return &v }
 	reset := func(v int64) *int64 { return &v }
-	zhipu := func(windows ...QuotaWindow) Provider {
-		return &mockProvider{name: "智谱 GLM (测试)", shortLabel: "智谱", windows: windows}
+
+	zhipu3 := func(pctH, pctW, pctM float64) Provider {
+		return &mockProvider{name: "智谱 GLM (测试)", shortLabel: "智谱", windows: []QuotaWindow{
+			{Label: "时度", Percentage: pct(pctH), NextResetMs: reset(h1)},
+			{Label: "周度", Percentage: pct(pctW), NextResetMs: reset(w5)},
+			{Label: "月度", Percentage: pct(pctM), NextResetMs: reset(d3)},
+		}}
+	}
+	zhipu3Nil := func(wNil int, pcts [3]float64) Provider {
+		ws := []QuotaWindow{
+			{Label: "时度", Percentage: pct(pcts[0]), NextResetMs: reset(h1)},
+			{Label: "周度", Percentage: pct(pcts[1]), NextResetMs: reset(w5)},
+			{Label: "月度", Percentage: pct(pcts[2]), NextResetMs: reset(d3)},
+		}
+		if wNil >= 0 && wNil < 3 {
+			ws[wNil].Percentage = nil
+			ws[wNil].NextResetMs = nil
+		}
+		return &mockProvider{name: "智谱 GLM (测试)", shortLabel: "智谱", windows: ws}
 	}
 	ds := func(p float64) Provider {
 		return &mockProvider{name: "DeepSeek (测试)", shortLabel: "DS", windows: []QuotaWindow{
-			{Label: "余额", Percentage: pct(p), NextResetMs: reset(h5)},
+			{Label: "余额", Percentage: pct(p), NextResetMs: reset(h8)},
 		}}
 	}
 
 	return []testScenario{
-		{
-			name: "🟢 正常 10%",
-			providers: []Provider{
-				zhipu(QuotaWindow{Label: "时度", Percentage: pct(10), NextResetMs: reset(h1)}),
-			},
-		},
-		{
-			name: "🟡 注意 35%",
-			providers: []Provider{
-				zhipu(QuotaWindow{Label: "时度", Percentage: pct(35), NextResetMs: reset(h1)}),
-			},
-		},
-		{
-			name: "🟠 警告 60%",
-			providers: []Provider{
-				zhipu(QuotaWindow{Label: "时度", Percentage: pct(60), NextResetMs: reset(h1)}),
-			},
-		},
-		{
-			name: "🔴 危险 85%",
-			providers: []Provider{
-				zhipu(QuotaWindow{Label: "时度", Percentage: pct(85), NextResetMs: reset(h1)}),
-			},
-		},
-		{
-			name: "⬜ 无数据",
-			providers: []Provider{
-				zhipu(QuotaWindow{Label: "时度", Percentage: nil, NextResetMs: nil}),
-			},
-		},
-		{
-			name: "📊 多窗口",
-			providers: []Provider{
-				zhipu(
-					QuotaWindow{Label: "时度", Percentage: pct(18), NextResetMs: reset(h1)},
-					QuotaWindow{Label: "周度", Percentage: pct(42), NextResetMs: reset(w5)},
-					QuotaWindow{Label: "月度", Percentage: pct(68), NextResetMs: reset(d3)},
-				),
-			},
-		},
-		{
-			name: "📱 多 Provider",
-			providers: []Provider{
-				zhipu(QuotaWindow{Label: "时度", Percentage: pct(30), NextResetMs: reset(h1)}),
-				ds(88),
-			},
-		},
-		{
-			name: "❌ API 错误",
-			providers: []Provider{
-				&mockProvider{name: "智谱 GLM (测试)", shortLabel: "智谱", errMsg: "401 Unauthorized: API Key 无效"},
-			},
-		},
+		{name: "🟢🟢🟢 全部正常", providers: []Provider{zhipu3(10, 15, 5)}},
+		{name: "🟢🟡🟠 渐进上升", providers: []Provider{zhipu3(10, 35, 60)}},
+		{name: "🟡🟠🔴 接近耗尽", providers: []Provider{zhipu3(35, 60, 85)}},
+		{name: "🔴🟠🟡 递减", providers: []Provider{zhipu3(85, 60, 35)}},
+		{name: "🔴🔴🔴 全部危险", providers: []Provider{zhipu3(90, 92, 95)}},
+		{name: "🟢🔴🟢 周度突高", providers: []Provider{zhipu3(10, 85, 5)}},
+		{name: "🔴🟢🔴 交错", providers: []Provider{zhipu3(88, 10, 90)}},
+		{name: "⬜🟢🔴 时度无数据", providers: []Provider{zhipu3Nil(0, [3]float64{0, 10, 85})}},
+		{name: "🟢⬜🟡 周度无数据", providers: []Provider{zhipu3Nil(1, [3]float64{10, 0, 35})}},
+		{name: "🟡🟢⬜ 月度无数据", providers: []Provider{zhipu3Nil(2, [3]float64{35, 10, 0})}},
+		{name: "📊 智谱+DeepSeek", providers: []Provider{zhipu3(30, 40, 50), ds(88)}},
+		{name: "❌ API 错误", providers: []Provider{
+			&mockProvider{name: "智谱 GLM (测试)", shortLabel: "智谱", errMsg: "401 Unauthorized: API Key 无效"},
+		}},
 	}
 }
 

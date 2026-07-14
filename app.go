@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -326,18 +325,6 @@ func renderMultiReport(reports []*UsageReport) {
 			allWindows = append(allWindows, windowEntry{r.ProviderName, w})
 		}
 	}
-
-	sort.Slice(allWindows, func(i, j int) bool {
-		fi := allWindows[i].window.Fraction()
-		fj := allWindows[j].window.Fraction()
-		if fi == nil {
-			return false
-		}
-		if fj == nil {
-			return true
-		}
-		return *fi > *fj
-	})
 
 	topN := allWindows
 	if len(topN) > 3 {
