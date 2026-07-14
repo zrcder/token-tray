@@ -25,6 +25,11 @@ var (
 	mUpdated  *systray.MenuItem
 	mRefresh  *systray.MenuItem
 
+	mTestHeader   *systray.MenuItem
+	mTestScenario *systray.MenuItem
+	mTestPause    *systray.MenuItem
+	mTestNext     *systray.MenuItem
+
 	mZhipuLabel   *systray.MenuItem
 	mZhipuEdit    *systray.MenuItem
 	mZhipuDelete  *systray.MenuItem
@@ -43,6 +48,13 @@ func onReady() {
 	systray.SetIcon(iconLoading)
 	systray.SetTitle("")
 	systray.SetTooltip("TokenTray — 加载中…")
+
+	mTestHeader = systray.AddMenuItem("", "")
+	mTestHeader.Disable()
+	mTestHeader.Hide()
+	mTestScenario = systray.AddMenuItem("", "")
+	mTestScenario.Disable()
+	mTestScenario.Hide()
 
 	mHeader = systray.AddMenuItem("", "")
 	mHeader.Disable()
@@ -64,6 +76,11 @@ func onReady() {
 	mUpdated.Hide()
 	systray.AddSeparator()
 
+	mTestPause = systray.AddMenuItem("", "")
+	mTestPause.Hide()
+	mTestNext = systray.AddMenuItem("", "")
+	mTestNext.Hide()
+
 	mRefresh = systray.AddMenuItem("↻ 刷新", "")
 	mInterval = systray.AddMenuItem(intervalLabel(), "")
 	systray.AddSeparator()
@@ -81,18 +98,33 @@ func onReady() {
 	mAbout = systray.AddMenuItem(fmt.Sprintf("关于 TokenTray %s", appVersion), "")
 	mQuit = systray.AddMenuItem("退出", "")
 
-	mu.Lock()
 	if testMode {
-		providers = makeMockProviders()
-		hideSettingsMenu()
+		setupTestMenu()
+		mu.Lock()
+		providers = currentTestProviders()
+		mu.Unlock()
 	} else {
+		mu.Lock()
 		cfg = LoadConfig()
 		rebuildProvidersLocked()
+		mu.Unlock()
 	}
-	mu.Unlock()
 
 	go refreshLoop()
 	go clickLoop()
+}
+
+func setupTestMenu() {
+	mTestHeader.SetTitle("🧪 测试模式 · 每 5 秒自动切换")
+	mTestHeader.Show()
+	mTestScenario.Show()
+	mTestPause.SetTitle("⏸ 暂停切换")
+	mTestPause.Show()
+	mTestNext.SetTitle("⏭ 下一个场景")
+	mTestNext.Show()
+	mRefresh.SetTitle("↻ 立即刷新")
+	mInterval.Hide()
+	hideSettingsMenu()
 }
 
 func rebuildProvidersLocked() {
@@ -146,11 +178,26 @@ func hideSettingsMenu() {
 func refreshLoop() {
 	doRefresh()
 	for {
-		mu.Lock()
-		interval := refreshInterval
-		mu.Unlock()
+		interval := 5 * time.Second
+		if !testMode {
+			mu.Lock()
+			interval = refreshInterval
+			mu.Unlock()
+		}
 		select {
 		case <-time.After(interval):
+			if testMode {
+				mu.Lock()
+				paused := testPaused
+				if !paused {
+					advanceTestScenario()
+					providers = currentTestProviders()
+				}
+				mu.Unlock()
+				if paused {
+					continue
+				}
+			}
 			doRefresh()
 		case <-refreshCh:
 			doRefresh()
@@ -201,6 +248,33 @@ func clickLoop() {
 			case refreshCh <- struct{}{}:
 			default:
 			}
+		case <-mTestPause.ClickedCh:
+			go func() {
+				mu.Lock()
+				testPaused = !testPaused
+				paused := testPaused
+				mu.Unlock()
+				if paused {
+					mTestPause.SetTitle("▶ 继续切换")
+				} else {
+					mTestPause.SetTitle("⏸ 暂停切换")
+					select {
+					case refreshCh <- struct{}{}:
+					default:
+					}
+				}
+			}()
+		case <-mTestNext.ClickedCh:
+			go func() {
+				mu.Lock()
+				advanceTestScenario()
+				providers = currentTestProviders()
+				mu.Unlock()
+				select {
+				case refreshCh <- struct{}{}:
+				default:
+				}
+			}()
 		case <-mZhipuEdit.ClickedCh:
 			if !testMode {
 				go handleEditProvider("智谱 GLM", &cfg.ZhipuAPIKey, true)
@@ -304,6 +378,10 @@ func renderMultiReport(reports []*UsageReport) {
 		winLabels[i].Hide()
 	}
 	mHeader.Hide()
+
+	if testMode {
+		mTestScenario.SetTitle("  " + currentTestScenarioName())
+	}
 
 	slotIdx := 0
 	for ri, r := range reports {
