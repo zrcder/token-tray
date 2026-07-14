@@ -27,13 +27,13 @@ func colorForFraction(f *float64) DotColor {
 	}
 	v := *f
 	switch {
-	case v >= 0.95:
+	case v >= 0.75:
 		return colRed
-	case v >= 0.85:
-		return colOrange
-	case v >= 0.70:
-		return colYellow
 	case v >= 0.50:
+		return colOrange
+	case v >= 0.25:
+		return colYellow
+	case v >= 0.10:
 		return colLime
 	default:
 		return colGreen
