@@ -41,8 +41,8 @@ func generateSegmentedIcon(segments []DotColor) []byte {
 	const (
 		canvasW = 48
 		canvasH = 16
-		gap     = 2
-		padY    = 2
+		gap     = 1
+		padY    = 1
 	)
 
 	n := len(segments)
@@ -57,7 +57,7 @@ func generateSegmentedIcon(segments []DotColor) []byte {
 	if runtime.GOOS == "windows" {
 		for y := 0; y < canvasH; y++ {
 			for x := 0; x < canvasW; x++ {
-				img.SetRGBA(x, y, color.RGBA{30, 30, 30, 255})
+				img.SetRGBA(x, y, color.RGBA{245, 245, 245, 255})
 			}
 		}
 	}
